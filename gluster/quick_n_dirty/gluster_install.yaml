@@ -6,7 +6,6 @@
         - /srv/gluster/brick1
         - /srv/gluster/brick2
     - gluster_volume: gv0
-    - gluster_replicas: 3
 
   tasks:
     - name: "Build /etc/hosts file"
@@ -74,7 +73,7 @@
     - firewalld: zone=public service=high-availability permanent=true state=enabled immediate=true
  
     - name: Create Gluster volume
-      gluster_volume: state=present name="{{ gluster_volume }}" bricks="{{ gluster_brick_dirs | join(",") }}" cluster="{{ groups.gluster_hosts | join(",") }}" replicas="{{replicas | default(2) }}"  force=true
+      gluster_volume: state=present name="{{ gluster_volume }}" bricks="{{ gluster_brick_dirs | join(",") }}" cluster="{{ groups.gluster_hosts | join(",") }}" replicas="{{replicas | default(disks|length) }}"  force=true
       run_once: true
     
     - name: Start Gluster volume
