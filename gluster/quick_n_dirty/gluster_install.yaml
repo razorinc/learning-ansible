@@ -1,0 +1,82 @@
+---
+- hosts: gluster_hosts
+
+  vars:
+    - gluster_brick_dirs:
+        - /srv/gluster/brick1
+        - /srv/gluster/brick2
+    - gluster_volume: gv0
+    - gluster_replicas: 3
+
+  tasks:
+    - name: "Build /etc/hosts file"
+      lineinfile: dest=/etc/hosts regexp='.*{{ item }}$' line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}}" state=present
+      when: hostvars[item].ansible_default_ipv4.address is defined
+      with_items: groups['all']
+
+    - name: Fetch glusterfs repo file
+      get_url: dest=/etc/yum.repos.d/glusterfs-epel.repo
+               url=http://download.gluster.org/pub/gluster/glusterfs/LATEST/CentOS/glusterfs-epel.repo
+
+    - name: Set repo file permissions
+      file: owner=root group=root mode=0644
+            path=/etc/yum.repos.d/glusterfs-epel.repo
+
+    - name: Install Centos SIG glusterfs
+      yum: name=centos-release-gluster37 state=installed
+    
+    - name: Install glusterfs server packages (CentOS)
+      yum: name={{item}} state=installed
+      with_items:
+        - glusterfs-server
+        - glusterfs-cli
+        - glusterfs
+        - attr
+
+    - name: Check for /dev/{{ item.1 }}1 existence
+      command: parted -s -m /dev/{{ item.1 }} print 1
+      register: disk_existence
+      failed_when: >
+           disk_existence is not defined
+      changed_when: >
+           "disk_existence.stdout" == "Error: Partition doesn't exist."
+      with_indexed_items:
+        disks
+
+    - name: Create disk partitions
+      command: /sbin/parted -s -m -a optimal /dev/{{ item.item.1 }} mkpart primary 0% 100% 
+      when: item.rc != 0
+      with_items: "{{ disk_existence.results }}" 
+
+
+    - name: Create xfs partitions
+      filesystem: fstype=xfs dev=/dev/{{ item.item.1 }}1 opts="-i size=512 -n size=8192"
+#      debug: msg="{{item.item.1}}"
+      when: item.rc != 0
+      with_items: "{{ disk_existence.results }}"
+
+    - name: Create mount point for bricks
+      mount: name="{{ gluster_brick_dirs[item.0] }}" src="/dev/{{item.1}}1" fstype=xfs state=mounted
+      with_indexed_items:
+       disks
+
+    - name: Ensure the GlusterFS service is running (CentOS)
+      service: name=glusterd state=started enabled=yes
+
+# Firewall rules for Gluster
+    - firewalld: zone=public port=24007-24009/tcp permanent=true state=enabled immediate=true 
+    - firewalld: zone=public port=38465-38467/tcp permanent=true state=enabled immediate=true 
+    - firewalld: zone=public port=49152/tcp permanent=true state=enabled immediate=true 
+    - firewalld: zone=public port=49153/tcp permanent=true state=enabled immediate=true 
+    - firewalld: zone=public service=nfs permanent=true state=enabled immediate=true
+    - firewalld: zone=public service=rpc-bind permanent=true state=enabled immediate=true
+    - firewalld: zone=public service=mountd permanent=true state=enabled immediate=true
+    - firewalld: zone=public service=high-availability permanent=true state=enabled immediate=true
+ 
+    - name: Create Gluster volume
+      gluster_volume: state=present name="{{ gluster_volume }}" bricks="{{ gluster_brick_dirs | join(",") }}" cluster="{{ groups.gluster_hosts | join(",") }}" replicas="{{replicas | default(2) }}"  force=true
+      run_once: true
+    
+    - name: Start Gluster volume
+      gluster_volume: name={{gluster_volume}} state=started
+

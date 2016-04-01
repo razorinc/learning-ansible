@@ -1,0 +1,4 @@
+disks:
+  - vdb
+  - vdc
+replicas: 2

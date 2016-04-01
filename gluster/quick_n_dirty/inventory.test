@@ -1,0 +1,7 @@
+[gluster_hosts]
+gluster1 ansible_ssh_host=192.168.122.156
+gluster2 ansible_ssh_host=192.168.122.120
+gluster3 ansible_ssh_host=192.168.122.145
+
+[gluster_hosts:vars]
+ansible_ssh_user=root
